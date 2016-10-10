@@ -131,17 +131,5 @@ def create_default_per_instance_preferences(sender, created, instance, **kwargs)
             pass
 
 
-def invalidate_cache(sender, created, instance, **kwargs):
-    if not isinstance(instance, BasePreferenceModel):
-        return
-    registry = preference_models.get_by_preference(instance)
-    linked_instance = getattr(instance, 'instance', None)
-    kwargs = {}
-    if linked_instance:
-        kwargs['instance'] = linked_instance
-
-    manager = registry.manager(**kwargs)
-    manager.to_cache(instance)
 
 post_save.connect(create_default_per_instance_preferences)
-post_save.connect(invalidate_cache)

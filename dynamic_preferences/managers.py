@@ -18,11 +18,6 @@ class PreferencesManager(collections.Mapping):
         if self.instance:
             self.queryset = self.queryset.filter(instance=self.instance)
 
-    @property
-    def cache(self):
-        from django.core.cache import caches
-        return caches['default']
-
     def __getitem__(self, key):
         return self.get(key)
 
@@ -46,26 +41,6 @@ class PreferencesManager(collections.Mapping):
     def get_by_name(self, name):
         return self.get(self.registry.get_by_name(name).identifier())
 
-    def get_cache_key(self, section, name):
-        """Return the cache key corresponding to a given preference"""
-        if not self.instance:
-            return 'dynamic_preferences_{0}_{1}_{2}'.format(self.model.__name__, section, name)
-        return 'dynamic_preferences_{0}_{1}_{2}_{3}'.format(self.model.__name__, self.instance.pk, section, name, self.instance.pk)
-
-    def from_cache(self, section, name):
-        """Return a preference raw_value from cache"""
-        cached_value = self.cache.get(
-            self.get_cache_key(section, name), CachedValueNotFound)
-
-        if cached_value is CachedValueNotFound:
-            raise CachedValueNotFound
-        return self.registry.get(section=section, name=name).serializer.deserialize(cached_value)
-
-    def to_cache(self, pref):
-        """Update/create the cache value for the given preference model instance"""
-        self.cache.set(
-            self.get_cache_key(pref.section, pref.name), pref.raw_value, None)
-
     def pref_obj(self, section, name):
         return self.registry.get(section=section, name=name)
 
@@ -78,22 +53,12 @@ class PreferencesManager(collections.Mapping):
             section = None
         return section, name
 
-    def get(self, key, no_cache=False):
+    def get(self, key):
         """Return the value of a single preference using a dotted path key
         :arg no_cache: if true, the cache is bypassed
         """
         section, name = self.parse_lookup(key)
-        if no_cache or not preferences_settings.ENABLE_CACHE:
-            return self.get_db_pref(section=section, name=name).value
-
-        try:
-            return self.from_cache(section, name)
-        except CachedValueNotFound:
-            pass
-
-        db_pref = self.get_db_pref(section=section, name=name)
-        self.to_cache(db_pref)
-        return db_pref.value
+        return self.get_db_pref(section=section, name=name).value
 
     def get_db_pref(self, section, name):
         try:
@@ -138,18 +103,8 @@ class PreferencesManager(collections.Mapping):
         """Return a dictionary containing all preferences by section
         Loaded from cache or from db in case of cold cache
         """
-        a = {}
-        if not preferences_settings.ENABLE_CACHE:
-            return self.load_from_db()
+        return self.load_from_db()
 
-        try:
-            for preference in self.registry.preferences():
-                a[preference.identifier()] = self.from_cache(
-                    preference.section.name, preference.name)
-        except CachedValueNotFound:
-            return self.load_from_db()
-
-        return a
 
     def load_from_db(self):
         """Return a dictionary of preferences by section directly from DB"""
@@ -162,8 +117,5 @@ class PreferencesManager(collections.Mapping):
                 db_pref = self.create_db_pref(
                     section=preference.section.name, name=preference.name, value=preference.default)
 
-            self.to_cache(db_pref)
-            a[preference.identifier()] = self.from_cache(
-                preference.section.name, preference.name)
-
+            a[preference.identifier()] = db_pref
         return a
